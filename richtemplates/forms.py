@@ -34,16 +34,22 @@ class LimitingModelForm(forms.ModelForm):
         """
         limiting_field_names = getattr(self.Meta, 'choices_limiting_fields', [])
         limiting_fields, limiting_models = [], []
+        # Support related attributes a__b__c
+        model = self._meta.model
         for fieldname in limiting_field_names:
-            field = self._meta.model._meta.get_field_by_name(fieldname)[0]
-            if not isinstance(field, models.ForeignKey):
-                raise LimitingModelFormError("Choices limiting field should "
-                    "be an instance of django.db.models.ForeignKey")
-            model = field.related.parent_model
-            if model in limiting_models:
-                raise LimitingModelFormError("Cannot limit choices using "
-                    "foreign keyed model more than once. Crashed at field "
-                    "'%s'" % (field.name))
+            # if fieldname is a__b__c, just save c
+            # and keep the fullname is a__b__c for later access
+            for bit in fieldname.split('__'):
+                field = model._meta.get_field_by_name(bit)[0]
+                if not isinstance(field, models.ForeignKey):
+                    raise LimitingModelFormError("Choices limiting field should "
+                        "be an instance of django.db.models.ForeignKey")
+                model = field.related.parent_model
+                if model in limiting_models:
+                    raise LimitingModelFormError("Cannot limit choices using "
+                        "foreign keyed model more than once. Crashed at field "
+                        "'%s'" % (field.name))
+            field.fullname = fieldname  # keep it for later use
             limiting_models.append(model)
             limiting_fields.append(field)
 
@@ -55,7 +61,7 @@ class LimitingModelForm(forms.ModelForm):
         self._meta.choices_limiting_fields.
         """
 
-        for model_field in self._get_limiting_model_fields():
+        for model_field in self._meta.choices_limiting_models:
             limiting_model = model_field.related.parent_model
             for bfield in self:
                 field = bfield.field
@@ -69,9 +75,28 @@ class LimitingModelForm(forms.ModelForm):
                     raise LimitingModelFormError("Too many fk'd fields")
                 elif fk_fields and limiting_model is fk_fields[0].related.parent_model:
                     try:
-                        limit_to = getattr(self.instance, model_field.name)
-                        field.queryset = field.queryset\
-                            .filter(**{model_field.name: limit_to})
+                        # Support related attributes a__b__c
+                        limit_to = self.instance
+                        for bit in model_field.fullname.split('__'):
+                            try:
+                                limit_to = getattr(limit_to, bit)
+                            except Exception:
+                                # Mostly DoesNotExist exception. TODO: catch exact exception
+                                # Example: getattr(task_revision, 'task') expected to return the task.
+                                # But if task_revision.pk = None, there's no task associate with it.
+                                # So the Task.DoesNotExist will be raised.
+                                # Question: if task_revision.pk = None, is there any case that the task is exist.
+                                # Answer: Yes. When the form is initialized with instance. i.e. Form(instance=instance)
+                                pass
+                        if limit_to.pk:
+                            # The form must exclude the fields which specified in choices_limiting_fields.
+                            # Otherwise the next queryset will fail due to it can not find the correct field in model.
+                            # This is normal usecase. But sometimes we need to edit this field in the admin page.
+                            # So simply ignore the field which has same model with the queryset
+                            if isinstance(limit_to, model_to_check):
+                                continue
+                            field.queryset = field.queryset\
+                                .filter(**{model_field.name: limit_to})
                     except limiting_model.DoesNotExist:
                         raise LimitingModelFormError("Tried to limit field "
                             "'%s' but it's instance field is empty"
