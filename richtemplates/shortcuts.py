@@ -14,6 +14,21 @@ def get_first_or_None(klass, *args, **kwargs):
     except IndexError:
         return None
 
+def get_default_or_None(klass, default='default', *args, **kwargs):
+    """
+    Similar to ``get_first_or_None`` but tries to fetch first default item
+    (defaul=True) from the query and if it does *NOT* exist None is returned
+    rather than raising exception.
+    """
+    queryset = _get_queryset(klass)
+    try:
+        return queryset.filter(**{default: True})[0]
+    except IndexError:
+        try:
+            return queryset[0]
+        except IndexError:
+            return None
+
 def get_json_response(data=''):
     """
     Returns instance of HttpResponse with json mimetype and serialized data.
