@@ -51,6 +51,37 @@ def autocomplete_field(bfield, **opts):
     return script_body
 autocomplete_field.function = True
 
+def autocomplete(bfield, **opts):
+    field_id = bfield.auto_id
+    attr = opts.pop('attr', '__unicode__')
+    assert hasattr(bfield.field.queryset.model, attr)
+    choices = ( callable(item) and item() or item for item in
+        (getattr(obj, attr) for obj in bfield.field.queryset))
+
+    source = '[' + ', '.join(('"%s"' % choice
+        for choice in choices)) + ']'
+
+    # Convert from python to js
+    for key, val in opts.items():
+        if isinstance(val, bool):
+            val = "true" if val else "false"
+        elif isinstance(val, unicode) or isinstance(val, str):
+            val = "'%s'" % val
+        opts[key] = val
+
+    options = ', '.join(("%s: %s" % (key, val) for key, val in opts.items()))
+
+    script_body = \
+    """<script type="text/javascript">
+        $(document).ready(function() {
+            $('#%(field_id)s').autocomplete(%(source)s, {%(options)s});
+        });
+    </script>
+    """ % {'field_id': field_id, 'source': source, 'options': options}
+
+    return script_body
+autocomplete.function = True
+
 def do_get_code_style(context):
     user = context.get('user', None)
     if user and user.is_authenticated():
