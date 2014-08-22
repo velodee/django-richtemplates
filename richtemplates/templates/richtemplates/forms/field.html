@@ -14,6 +14,6 @@
         </ul>
         {% endif %}
         {#{ field.errors }#}
-        {% if field.help_text %}<span class="help-text"> {{ field.help_text }}</span>{% endif %}
+        {% if field.help_text %}<span class="help-text"> {{ field.help_text|safe }}</span>{% endif %}
     </td>
 </tr>
